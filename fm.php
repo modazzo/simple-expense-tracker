@@ -1,24 +1,32 @@
 <?php
 session_start();
-date_default_timezone_set('Europe/Berlin'); // Setze die Zeitzone
+
+// Laden der Konfigurationsdatei
+$config = json_decode(file_get_contents('configurations.json'), true);
+if (!$config) {
+    die("Fehler beim Laden der Konfigurationsdatei.");
+}
+
+// Setze die Zeitzone aus der Konfiguration
+date_default_timezone_set($config['timezone']);
 $current_date = date('Y-m-d'); // Hol das aktuelle Datum im Format YYYY-MM-DD
 
-// Function for logging
+// Funktion für das Logging
 function logline($text, $value = "", $lineNumber = 0) {
-    $callingFile = basename(__FILE__, '.php'); // Remove the .php extension
-    $logFile = $callingFile . '.log';
+    global $config;
+    $logFile = $config['log_file'];
     $logLine = "[" . str_pad($lineNumber, 4, "0", STR_PAD_LEFT) . "] " . str_pad($text, 50) . ": " . print_r($value, true) . "\n";
     file_put_contents($logFile, $logLine, FILE_APPEND);
 }
 
-// Extended logArray function to handle nested arrays and objects
+// Erweiterte logArray-Funktion zur Handhabung verschachtelter Arrays und Objekte
 function logArray($label, $data, $lineNumber = 0) {
-    // Check if data is an array or object
+    // Überprüfen, ob die Daten ein Array oder Objekt sind
     if (is_array($data) || is_object($data)) {
         foreach ($data as $key => $value) {
             $currentLabel = $label . " -> " . $key;
 
-            // Handle nested arrays/objects recursively
+            // Handhabung verschachtelter Arrays/Objekte rekursiv
             if (is_array($value) || is_object($value)) {
                 logline($currentLabel, "[Array/Object]", $lineNumber);
                 logArray($currentLabel, $value, $lineNumber);
@@ -27,19 +35,30 @@ function logArray($label, $data, $lineNumber = 0) {
             }
         }
     } else {
-        // Log if data is neither an array nor an object
+        // Loggen, wenn die Daten weder ein Array noch ein Objekt sind
         logline($label, $data, $lineNumber);
     }
 }
 
-// Load users from user.json
+// Funktion zur Formatierung des Betrags unter Verwendung der Konfiguration
+function formatCurrency($amount) {
+    global $config;
+    return number_format(
+        $amount,
+        $config['currency_format']['decimals'],
+        $config['currency_format']['decimal_separator'],
+        $config['currency_format']['thousands_separator']
+    ) . ' ' . $config['currency'];
+}
+
+// Laden der Benutzer aus user.json
 $userData = json_decode(file_get_contents('user.json'), true);
 if (!$userData) {
-    die("Error loading user data.");
+    die("Fehler beim Laden der Benutzerdaten.");
 }
-logline("User data loaded", $userData, __LINE__);
+logline("Benutzerdaten geladen", $userData, __LINE__);
 
-// Check if the user is already logged in
+// Überprüfen, ob der Benutzer bereits eingeloggt ist
 if (!isset($_SESSION['loggedin'])) {
     if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['username']) && isset($_POST['password'])) {
         $isValid = false;
@@ -49,18 +68,18 @@ if (!isset($_SESSION['loggedin'])) {
                 $_SESSION['username'] = $user['user'];
                 $_SESSION['link'] = $user['link'];
                 $isValid = true;
-                logline("User authenticated", $user['user'], __LINE__);
+                logline("Benutzer authentifiziert", $user['user'], __LINE__);
                 break;
             }
         }
         if (!$isValid) {
-            $error = "Invalid username or password!";
-            logline("Authentication failed", $error, __LINE__);
+            $error = "Ungültiger Benutzername oder Passwort!";
+            logline("Authentifizierung fehlgeschlagen", $error, __LINE__);
         }
     }
 }
 
-// If not logged in, display the login form
+// Wenn nicht eingeloggt, das Login-Formular anzeigen
 if (!isset($_SESSION['loggedin']) || $_SESSION['loggedin'] !== true) {
     ?>
     <!DOCTYPE html>
@@ -92,7 +111,7 @@ if (!isset($_SESSION['loggedin']) || $_SESSION['loggedin'] !== true) {
         </style>
     </head>
     <body class="container my-5">
-        <h2 class="mb-4">Please Log In</h2>
+        <h2 class="mb-4">Bitte einloggen</h2>
         <?php if (isset($error)): ?>
             <div class="alert alert-danger"><?php echo htmlspecialchars($error); ?></div>
         <?php endif; ?>
@@ -112,10 +131,10 @@ if (!isset($_SESSION['loggedin']) || $_SESSION['loggedin'] !== true) {
     </body>
     </html>
     <?php
-    exit; // Stop the script here if not logged in
+    exit; // Stoppe das Skript hier, wenn nicht eingeloggt
 }
 
-// Rest of your script (Einnahmen- und Ausgaben-Code) goes here
+// Rest des Skripts (Einnahmen- und Ausgaben-Code) beginnt hier
 
 // JSON-Datei zum Speichern der Transaktionen
 $file = 'data.json';
@@ -135,7 +154,7 @@ function saveData($data) {
 // Initialisieren der Daten
 $data = loadData();
 
-logArray("Data loaded", $data, __LINE__);
+logArray("Daten geladen", $data, __LINE__);
 
 // Eintrag hinzufügen
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['add'])) {
@@ -143,12 +162,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['add'])) {
     $description = $_POST['description'];
     $amount = (float)$_POST['amount'];
     $date = $_POST['date'];
-    $user_id = $_SESSION['username']; // Set the user_id to the logged-in username
+    $user_id = $_SESSION['username']; // Setze die user_id auf den eingeloggenen Benutzernamen
 
     // Beleg hochladen
     $receipt_path = null;
     if (isset($_FILES['receipt']) && $_FILES['receipt']['error'] === UPLOAD_ERR_OK) {
-        $upload_dir = 'uploads/';
+        global $config;
+        $upload_dir = $config['upload_directory'];
         if (!is_dir($upload_dir)) {
             mkdir($upload_dir, 0777, true);
         }
@@ -230,11 +250,6 @@ foreach ($data['transactions'] as $transaction) {
     }
 }
 $saldo = $total_income - $total_expense;
-
-// Funktion zur Formatierung des Betrags
-function formatCurrency($amount) {
-    return number_format($amount, 2, ',', '.') . ' €';
-}
 
 // Farbe für den Saldo bestimmen
 $saldo_color = $saldo >= 0 ? 'blue' : 'red';
@@ -350,7 +365,7 @@ $saldo_color = $saldo >= 0 ? 'blue' : 'red';
                             <input type="text" name="description" id="edit-description" class="form-control" required>
                         </div>
                         <div class="mb-3">
-                            <label for="edit-amount" class="form-label">Betrag (€)</label>
+                            <label for="edit-amount" class="form-label">Betrag (<?php echo htmlspecialchars($config['currency'], ENT_QUOTES, 'UTF-8'); ?>)</label>
                             <input type="number" step="0.01" name="amount" id="edit-amount" class="form-control" required>
                         </div>
                         <div class="mb-3">
@@ -383,11 +398,11 @@ $saldo_color = $saldo >= 0 ? 'blue' : 'red';
             </div>
             <div class="col-12 col-md-2">
                 <label for="amount" class="visually-hidden">Betrag</label>
-                <input type="number" step="0.01" name="amount" id="amount" class="form-control" placeholder="Betrag (€)" required>
+                <input type="number" step="0.01" name="amount" id="amount" class="form-control" placeholder="Betrag (<?php echo htmlspecialchars($config['currency'], ENT_QUOTES, 'UTF-8'); ?>)" required>
             </div>
             <div class="col-12 col-md-2">
                 <label for="date" class="visually-hidden">Datum</label>
-                <input type="date" name="date" id="date" class="form-control" value="<?php echo $current_date; ?>" required>
+                <input type="date" name="date" id="date" class="form-control" value="<?php echo htmlspecialchars($current_date, ENT_QUOTES, 'UTF-8'); ?>" required>
             </div>
             <div class="col-12 col-md-2">
                 <label for="receipt" class="visually-hidden">Beleg hochladen</label>
@@ -412,8 +427,8 @@ $saldo_color = $saldo >= 0 ? 'blue' : 'red';
         <div style="flex: 0 0 auto;">
             <!-- Button-Leiste -->
             <div id="toolbar1" class="btn-group">
-                <button class="btn btn-info mb-2" id="invoice_deleterow" style="height: 40px;">Delete</button>
-                <button class="btn btn-primary mb-2" id="invoice_editrow" style="height: 40px;"><i class="fas fa-edit"></i> Edit</button>
+                <button class="btn btn-info mb-2" id="invoice_deleterow" style="height: 40px;">Löschen</button>
+                <button class="btn btn-primary mb-2" id="invoice_editrow" style="height: 40px;"><i class="fas fa-edit"></i> Bearbeiten</button>
                 <button class="btn btn-secondary" id="show_receipt" style="height: 40px;"><i class="fas fa-file-alt"></i> Beleg anzeigen</button>
             </div>
         </div>
@@ -431,11 +446,11 @@ $saldo_color = $saldo >= 0 ? 'blue' : 'red';
                     </thead>
                     <tbody>
                         <tr>
-                            <td class="text-start"><?php echo formatCurrency($total_income); ?></td>
-                            <td class="text-end"><?php echo formatCurrency($total_expense); ?></td>
+                            <td class="text-start"><?php echo htmlspecialchars(formatCurrency($total_income), ENT_QUOTES, 'UTF-8'); ?></td>
+                            <td class="text-end"><?php echo htmlspecialchars(formatCurrency($total_expense), ENT_QUOTES, 'UTF-8'); ?></td>
                             <td class="text-end">
-                                <span style="color: <?php echo $saldo_color; ?>;">
-                                    <?php echo formatCurrency($saldo); ?>
+                                <span style="color: <?php echo htmlspecialchars($saldo_color, ENT_QUOTES, 'UTF-8'); ?>;">
+                                    <?php echo htmlspecialchars(formatCurrency($saldo), ENT_QUOTES, 'UTF-8'); ?>
                                 </span>
                             </td>
                         </tr>
@@ -474,16 +489,16 @@ $saldo_color = $saldo >= 0 ? 'blue' : 'red';
             </thead>
             <tbody>
                 <?php foreach ($data['transactions'] as $transaction): ?>
-                    <tr data-id="<?php echo $transaction['id']; ?>">
+                    <tr data-id="<?php echo htmlspecialchars($transaction['id'], ENT_QUOTES, 'UTF-8'); ?>">
                         <td data-label="Datum"><?php echo htmlspecialchars($transaction['date'] ?? '', ENT_QUOTES, 'UTF-8'); ?></td>
                         <td data-label="Typ"><?php echo htmlspecialchars(($transaction['type'] === 'income' ? 'Einnahme' : 'Ausgabe') ?? '', ENT_QUOTES, 'UTF-8'); ?></td>
                         <td data-label="Beschreibung"><?php echo htmlspecialchars($transaction['description'] ?? '', ENT_QUOTES, 'UTF-8'); ?></td>
-                        <td data-label="Betrag" class="text-end" style="font-weight: bold; color: <?php echo $transaction['type'] === 'income' ? 'blue' : 'red'; ?>">
+                        <td data-label="Betrag" class="text-end" style="font-weight: bold; color: <?php echo htmlspecialchars($transaction['type'] === 'income' ? 'blue' : 'red', ENT_QUOTES, 'UTF-8'); ?>;">
                             <?php
                             if ($transaction['type'] === 'income') {
-                                echo '+ ' . formatCurrency($transaction['amount'] ?? 0);
+                                echo '+ ' . htmlspecialchars(formatCurrency($transaction['amount'] ?? 0), ENT_QUOTES, 'UTF-8');
                             } else {
-                                echo '- ' . formatCurrency($transaction['amount'] ?? 0);
+                                echo '- ' . htmlspecialchars(formatCurrency($transaction['amount'] ?? 0), ENT_QUOTES, 'UTF-8');
                             }
                             ?>
                         </td>
