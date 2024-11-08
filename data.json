@@ -1,0 +1,23 @@
+{
+    "users": [],
+    "transactions": [
+        {
+            "id": 1731011828,
+            "type": "income",
+            "description": "test",
+            "amount": 100,
+            "date": "2024-11-07",
+            "user_id": "mair",
+            "receipt": null
+        },
+        {
+            "id": 1731011854,
+            "type": "expense",
+            "description": "Heiz\u00f6l",
+            "amount": 999,
+            "date": "2024-11-07",
+            "user_id": "mair",
+            "receipt": "uploads\/1731011854_brabour.jpg"
+        }
+    ]
+}
